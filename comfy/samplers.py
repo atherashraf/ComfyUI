@@ -986,6 +986,11 @@ class CFGGuider:
 
         if denoise_mask is not None:
             denoise_mask = comfy.sampler_helpers.prepare_mask(denoise_mask, noise.shape, device)
+        if "cuda" in str(device):
+            import torch
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
 
         noise = noise.to(device)
         latent_image = latent_image.to(device)
