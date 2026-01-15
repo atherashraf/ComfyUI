@@ -1,0 +1,7 @@
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+verify cuda work
+python -c "import torch; print(torch.__version__); print('cuda?', torch.cuda.is_available()); print('cuda', torch.version.cuda)"
+
+install remaining requirements
+pip install -r requirements.txt
