@@ -1,58 +1,59 @@
 @echo off
-title ComfyUI - 8GB VRAM (RTX 4070 Laptop)
+title ComfyUI - RTX 4070 Laptop (8GB VRAM)
+
 echo ======================================
 echo   Activating Virtual Environment
 echo ======================================
 echo.
 
-REM ---- Activate .venv (Windows)
+REM ---- Activate virtual environment
 call ".venv\Scripts\activate.bat"
 
 if %errorlevel% neq 0 (
-    echo Failed to activate .venv!
-    echo Make sure .venv folder exists in the same directory as this batch file.
+    echo ❌ Failed to activate .venv!
+    echo Make sure the .venv folder exists.
     pause
     exit /b
 )
 
-echo Virtual environment activated!
+echo ✅ Virtual environment activated!
 echo.
 
 echo ======================================
-echo     Setting VRAM-Safe Environment
+echo     Setting CUDA / VRAM Options
 echo ======================================
+echo.
 
-REM --- Optional: Select GPU 0
+REM ---- Select GPU (if multiple GPUs exist)
 set CUDA_VISIBLE_DEVICES=0
 
-REM --- Prevent PyTorch memory fragmentation
-set PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:64
+REM ---- Reduce CUDA memory fragmentation (safe)
+set PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:64,garbage_collection_threshold:0.6
 
-REM --- Disable CUDA malloc async (fixes OOM on many GPUs)
-set DISABLE_CUDA_MALLOC=1
-
-REM --- Low VRAM mode for ComfyUI
-set COMFYUI_LOWVRAM=1
-
-REM --- Allow gradual memory growth
+REM ---- Allow gradual memory growth (safe)
 set TORCH_FORCE_GPU_ALLOW_GROWTH=true
 
-echo.
+REM ---- LOW VRAM hint (ComfyUI reads this)
+set COMFYUI_LOWVRAM=1
+
 echo ======================================
 echo       Cleaning TEMP (optional)
 echo ======================================
 echo.
 
-rmdir /s /q temp 2>nul
+if exist temp (
+    rmdir /s /q temp
+)
 mkdir temp
 
 echo ======================================
-echo       Starting ComfyUI
+echo        Starting ComfyUI
 echo ======================================
 echo.
 
-REM --- Launch with arguments
-python main.py --lowvram --cpu-vae
+REM ---- Recommended launch for 8GB VRAM
+REM ----- python main.py --lowvram --cpu-vae --use-split-cross-attention
+python main.py --lowvram --use-split-cross-attention
 
 echo.
 pause
