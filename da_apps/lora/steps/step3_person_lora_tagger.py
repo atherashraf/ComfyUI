@@ -1,9 +1,9 @@
-# import cv2
-# import numpy as np
+import cv2
+import numpy as np
 from PIL import Image
 from pathlib import Path
 import json
-# import os
+import os
 from datetime import datetime
 
 
@@ -368,3 +368,236 @@ class PersonLoRATagger:
             'timestamp': datetime.now().isoformat(),
             'images': all_metadata
         }
+
+        summary_file = output_path / "tagging_summary.json"
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, indent=2)
+
+        print(f"\n{'=' * 60}")
+        print(f"TAGGING COMPLETE")
+        print(f"{'=' * 60}")
+        print(f"Tagged: {tagged_count}/{len(image_files)} images")
+        print(f"Caption files saved with extension: {caption_ext}")
+        if json_output:
+            print(f"Metadata saved as JSON files")
+        print(f"Summary: {summary_file}")
+
+        return summary
+
+    def preview_tagged_image(self, image_path, caption):
+        """Preview image with caption."""
+        try:
+            import matplotlib.pyplot as plt
+
+            img = Image.open(image_path).convert('RGB')
+
+            plt.figure(figsize=(10, 8))
+            plt.imshow(img)
+            plt.title(f"Caption: {caption}", fontsize=10, wrap=True)
+            plt.axis('off')
+            plt.tight_layout()
+            plt.show()
+
+        except ImportError:
+            print("  (Install matplotlib for preview: pip install matplotlib)")
+
+    def manual_caption_editor(self, input_folder):
+        """Interactive editor to manually review and edit captions."""
+        input_path = Path(input_folder)
+
+        # Find caption files
+        caption_files = list(input_path.glob('*.txt')) + list(input_path.glob('*.caption'))
+
+        print(f"\nManual Caption Editor")
+        print(f"Found {len(caption_files)} caption files")
+        print("Press Enter to keep current caption, or type new caption")
+
+        for caption_file in caption_files:
+            # Find corresponding image
+            img_file = input_path / f"{caption_file.stem}.jpg"
+            if not img_file.exists():
+                img_file = input_path / f"{caption_file.stem}.png"
+
+            if img_file.exists():
+                # Display image
+                try:
+                    import matplotlib.pyplot as plt
+
+                    img = Image.open(img_file).convert('RGB')
+                    plt.figure(figsize=(8, 6))
+                    plt.imshow(img)
+                    plt.axis('off')
+                    plt.title(f"Current caption:", fontsize=9)
+                    plt.show()
+                except:
+                    pass
+
+                # Read current caption
+                with open(caption_file, 'r', encoding='utf-8') as f:
+                    current_caption = f.read().strip()
+
+                print(f"\n{img_file.name}")
+                print(f"Current: {current_caption}")
+
+                # Get new caption
+                new_caption = input(f"New caption (Enter to keep): ").strip()
+
+                if new_caption:
+                    # Save new caption
+                    with open(caption_file, 'w', encoding='utf-8') as f:
+                        f.write(new_caption)
+                    print(f"✓ Caption updated")
+                else:
+                    print(f"✓ Kept original caption")
+
+        print("\nCaption editing complete!")
+
+
+# Quick tagging function
+def quick_tag_person_lora(INPUT_FOLDER):
+    """One-click tagging for person LoRA."""
+
+    # Configuration
+    # INPUT_FOLDER = r"D:\Documents\general\downloads\pics\judi_cropped"  # Your cropped images
+    TOKEN = "sjx"  # Your unique token
+    USE_BLIP = True  # Auto-captioning
+    USE_YOLO = True  # Pose/object detection
+
+    print("=" * 60)
+    print("PERSON LoRA TAGGING SYSTEM")
+    print("=" * 60)
+
+    # Initialize tagger
+    tagger = PersonLoRATagger(
+        token=TOKEN,
+        use_blip=USE_BLIP,
+        use_yolo=USE_YOLO
+    )
+
+    # Tag all images
+    summary = tagger.tag_folder(
+        input_folder=INPUT_FOLDER,
+        output_folder=None,  # Save in same folder
+        caption_ext=".txt",  # Standard extension
+        json_output=True,  # Save metadata
+        preview=False  # Don't show previews
+    )
+
+    # Show statistics
+    print("\n" + "=" * 60)
+    print("CAPTION EXAMPLES:")
+    print("=" * 60)
+
+    # Show first few captions
+    for i, metadata in enumerate(summary['images'][:5]):
+        print(f"{i + 1}. {metadata['caption']}")
+
+    print("\n" + "=" * 60)
+    print("NEXT STEPS:")
+    print("=" * 60)
+    print("1. Review caption files (.txt) in folder")
+    print("2. Edit any captions that seem inaccurate")
+    print("3. Remove any memorized details (specific clothing, backgrounds)")
+    print("4. Ensure all captions start with your token: [sjx]")
+    print("5. For training, each image should have a corresponding .txt file")
+
+    return summary
+
+
+# Manual tagging helper
+def create_manual_captions(input_folder, token="sjx"):
+    """Create manual captions based on image content."""
+
+    # Common caption templates
+    templates = {
+        'front_standing': f"[{token}], full body photo, standing, wearing casual clothes, portrait",
+        'front_sitting': f"[{token}], sitting on chair, full body, indoor, portrait",
+        'side_view': f"[{token}], side view, profile, full body, standing",
+        'back_view': f"[{token}], back view, from behind, full body",
+        'outdoor': f"[{token}], outdoor, full body, standing in park, natural lighting",
+        'indoor': f"[{token}], indoor, full body, standing in room, portrait",
+        'action': f"[{token}], walking, in motion, full body, street photo"
+    }
+
+    input_path = Path(input_folder)
+    image_files = list(input_path.glob('*.jpg')) + list(input_path.glob('*.png'))
+
+    print(f"Creating manual captions for {len(image_files)} images")
+    print("Available templates:")
+    for key, template in templates.items():
+        print(f"  {key}: {template}")
+
+    for img_path in image_files:
+        caption_file = input_path / f"{img_path.stem}.txt"
+
+        if caption_file.exists():
+            print(f"✓ Caption already exists for {img_path.name}")
+            continue
+
+        # Try to guess based on filename
+        img_name = img_path.stem.lower()
+
+        if 'back' in img_name or 'rear' in img_name:
+            caption = templates['back_view']
+        elif 'side' in img_name or 'profile' in img_name:
+            caption = templates['side_view']
+        elif 'sit' in img_name or 'chair' in img_name:
+            caption = templates['front_sitting']
+        elif 'walk' in img_name or 'street' in img_name:
+            caption = templates['action']
+        elif 'outdoor' in img_name or 'park' in img_name:
+            caption = templates['outdoor']
+        else:
+            # Default to front standing
+            caption = templates['front_standing']
+
+        # Save caption
+        with open(caption_file, 'w', encoding='utf-8') as f:
+            f.write(caption)
+
+        print(f"✓ Created caption for {img_path.name}: {caption[:50]}...")
+
+    print(f"\nCreated {len(image_files)} caption files")
+    print("Review and edit as needed!")
+
+
+# Command line interface
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Tag images for person LoRA training')
+    parser.add_argument('--input', type=str, required=True, help='Input folder with images')
+    parser.add_argument('--token', type=str, default='sjx', help='Unique token (default: sjx)')
+    parser.add_argument('--blip', action='store_true', help='Use BLIP for auto-captioning')
+    parser.add_argument('--yolo', action='store_true', help='Use YOLO for pose detection')
+    parser.add_argument('--manual', action='store_true', help='Create manual captions')
+    parser.add_argument('--edit', action='store_true', help='Edit captions manually')
+
+    args = parser.parse_args()
+
+    if args.manual:
+        create_manual_captions(args.input, args.token)
+    else:
+        tagger = PersonLoRATagger(
+            token=args.token,
+            use_blip=args.blip,
+            use_yolo=args.yolo
+        )
+
+        if args.edit:
+            tagger.manual_caption_editor(args.input)
+        else:
+            tagger.tag_folder(args.input)
+
+
+if __name__ == "__main__":
+    # Uncomment one of these:
+
+    # Option 1: Quick one-click tagging
+    quick_tag_person_lora()
+
+    # Option 2: Manual captions only
+    # create_manual_captions(r"D:\Documents\general\downloads\pics\judi_cropped", "sjx")
+
+    # Option 3: Command line
+    # main()
