@@ -31,3 +31,44 @@ def prepare_kohya_structure(source_folder, output_folder, concept_name="judi"):
     if concept_folder.exists():
         print(f"Cleaning up old folder: {concept_folder}")
         shutil.rmtree(concept_folder)
+
+    concept_folder.mkdir(parents=True, exist_ok=True)
+
+    # Get all images
+    images = []
+    for ext in ['.jpg', '.jpeg', '.png', '.webp']:
+        images.extend(source_path.glob(f'*{ext}'))
+        images.extend(source_path.glob(f'*{ext.upper()}'))
+
+    print(f"Preparing {len(images)} images for Kohya_SS...")
+
+    # Copy files
+    for i, img_path in enumerate(sorted(images)):
+        # Image file
+        img_ext = img_path.suffix.lower()
+        new_img_name = f"{concept_name}_{i:04d}{img_ext}"
+        new_img_path = concept_folder / new_img_name
+
+        # Copy image
+        shutil.copy2(img_path, new_img_path)
+
+        # Caption file
+        caption_path = source_path / f"{img_path.stem}.txt"
+        if caption_path.exists():
+            new_caption_name = f"{concept_name}_{i:04d}.txt"
+            new_caption_path = concept_folder / new_caption_name
+            shutil.copy2(caption_path, new_caption_path)
+            print(f"✓ {img_path.name} -> {new_img_name}")
+        else:
+            # Create default caption
+            default_caption = f"photo of {concept_name}, full body"
+            new_caption_name = f"{concept_name}_{i:04d}.txt"
+            new_caption_path = concept_folder / new_caption_name
+            with open(new_caption_path, 'w', encoding='utf-8') as f:
+                f.write(default_caption)
+            print(f"✓ {img_path.name} -> {new_img_name} (created caption)")
+
+    print(f"\nKohya_SS dataset prepared at: {concept_folder}")
+    print(f"Total images: {len(images)}")
+
+    return dataset_parent  # Return the PARENT folder

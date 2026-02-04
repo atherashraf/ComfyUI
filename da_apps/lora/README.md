@@ -82,3 +82,51 @@ Instead of retraining the entire massive model (billions of parameters), LoRA in
     3.  For each step, take a batch of (image, caption), add noise, and try to predict the noise.
     4.  **Only the weights in the tiny LoRA matrices are updated.** The original model remains frozen.
     5.  Save checkpoints (`.safetensors` files) periodically (e.g., every 5 epochs).
+
+---
+
+### **Phase 3: Evaluation & Testing**
+
+**Step 7: The "Preview" During Training**
+*   Kohya_SS often generates sample images during training using a fixed prompt (e.g., `[sjx] in a suit, professional portrait`).
+*   **Monitor these!** You want to see:
+    *   **Early Epochs:** The person's features start to appear, but are blurry/wrong.
+    *   **Good Epoch:** Clear likeness, stable, good features. **THIS IS YOUR GOAL.**
+    *   **Later Epochs (Overfitting):** Images become oversaturated, "cartoony," features distort, or the person starts to appear even in prompts without the `[sjx]` token.
+
+**Step 8: Testing the Checkpoints**
+*   After training, take the saved `.safetensors` files (e.g., from epoch 15, 20, 25).
+*   Load them into your Stable Diffusion UI (A1111, ComfyUI).
+*   **Test Prompts:**
+    *   **Basic:** `portrait of [sjx], smiling`
+    *   **Style Change:** `[sjx] as a cyberpunk character, neon lighting`
+    *   **Context Change:** `[sjx] hiking in the mountains, photorealistic`
+    *   **Negation Test:** `a photo of a man` (This should **NOT** look like your person. If it does, the LoRA is leaking—sign of overfitting).
+
+---
+
+### **Phase 4: Usage**
+
+**Step 9: Applying the Trained LoRA**
+*   In your prompt, you activate the LoRA with a special syntax, e.g., `<lora:sjx_v25:1>`.
+*   The **weight** (`:1` at the end) is crucial:
+    *   `:0.8` - Slightly weaker, often better for blending or style.
+    *   `:1` - Standard strength.
+    *   `:1.2` - Stronger, but risk of artifacts. You often need to lower this if you over-trained.
+
+**Step 10: Prompting with Your LoRA**
+*   **Use your token:** Always include `[sjx]` in your prompt.
+*   **Combine with other LoRAs:** You can use a clothing style LoRA (`<lora:trendy_jacket:0.6>`) alongside your person LoRA (`<lora:sjx_v25:1>`).
+*   **Use negative prompts:** To avoid common artifacts (e.g., `bad hands, deformed, blurry`).
+
+---
+
+### **Summary Workflow:**
+1.  **Gather & Curate** 20+ diverse, clear images of the person.
+2.  **Process & Caption** them using your unique token (`[sjx]`).
+3.  **Configure Trainer** with a low Rank (~8), moderate Epochs (~20-25), and low LR (~1e-4).
+4.  **Train & Monitor** previews to catch the "sweet spot" epoch.
+5.  **Test** different checkpoints with varied prompts.
+6.  **Use** the best checkpoint in your prompts via `<lora:name:weight>`.
+
+**Pro-Tip:** With 20+ good images, the main challenge is **avoiding overfitting**. Start conservative (low rank, fewer epochs) and run a short test. You can always train more, but you can't "untrain" overfitting.

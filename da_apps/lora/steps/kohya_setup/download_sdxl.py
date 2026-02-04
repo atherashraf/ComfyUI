@@ -1,49 +1,48 @@
+import requests
 import os
-from huggingface_hub import hf_hub_download
+from tqdm import tqdm
+from pathlib import Path
 
 
-def download_sdxl_models(comfy_root):
-    """
-    Checks if SDXL Base AND Refiner exist in the ComfyUI checkpoints folder.
-    Downloads them automatically if missing.
-    """
-    checkpoint_dir = os.path.join(comfy_root, "models", "checkpoints")
-    os.makedirs(checkpoint_dir, exist_ok=True)
+def download_sdxl_models(model_dir="models"):
+    """Download SDXL models."""
+    model_path = Path(model_dir)
+    model_path.mkdir(exist_ok=True)
 
-    # List of models to check
-    models_to_download = [
-        {
-            "name": "SDXL Base 1.0",
-            "filename": "sd_xl_base_1.0.safetensors",
-            "repo_id": "stabilityai/stable-diffusion-xl-base-1.0"
-        },
-        {
-            "name": "SDXL Refiner 1.0",
-            "filename": "sd_xl_refiner_1.0.safetensors",
-            "repo_id": "stabilityai/stable-diffusion-xl-refiner-1.0"
-        }
-    ]
+    models = {
+        "sd_xl_base_1.0.safetensors": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors",
+        "sd_xl_refiner_1.0.safetensors": "https://huggingface.co/stabilityai/stable-diffusion-xl-refiner-1.0/resolve/main/sd_xl_refiner_1.0.safetensors",
+    }
 
-    for model in models_to_download:
-        file_path = os.path.join(checkpoint_dir, model["filename"])
+    for filename, url in models.items():
+        filepath = model_path / filename
 
-        if os.path.exists(file_path):
-            print(f"✅ {model['name']} found at: {file_path}")
-        else:
-            print(f"⚠️ {model['name']} NOT found. Downloading now... (Please wait)")
-            try:
-                hf_hub_download(
-                    repo_id=model["repo_id"],
-                    filename=model["filename"],
-                    local_dir=checkpoint_dir,
-                    local_dir_use_symlinks=False
-                )
-                print(f"🎉 {model['name']} download complete!")
-            except Exception as e:
-                print(f"❌ Error downloading {model['name']}: {e}")
+        if filepath.exists():
+            print(f"✓ {filename} already exists")
+            continue
+
+        print(f"Downloading {filename}...")
+        response = requests.get(url, stream=True)
+        total_size = int(response.headers.get('content-length', 0))
+
+        with open(filepath, 'wb') as f, tqdm(
+                desc=filename,
+                total=total_size,
+                unit='iB',
+                unit_scale=True,
+                unit_divisor=1024,
+        ) as pbar:
+            for data in response.iter_content(chunk_size=1024):
+                size = f.write(data)
+                pbar.update(size)
+
+        print(f"✓ Downloaded {filename}")
+
+    print(f"\nModels saved to: {model_path}")
 
 
 if __name__ == "__main__":
-    # Change this path if your ComfyUI is somewhere else
-    default_comfy_root = r"D:\DevProjects\PhotoAI\ComfyUI"
-    download_sdxl_models(default_comfy_root)
+    # Download models
+    sdxl_dir = Path(r"D:\lora_training\models")
+    sdxl_dir.mkdir(parents=True, exist_ok=True)
+    download_sdxl_models(str(sdxl_dir))

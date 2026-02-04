@@ -83,8 +83,8 @@ def run_full_training_pipeline(
     models_path = work_path / "models"
     base_model_file = models_path / "sd_xl_base_1.0.safetensors"
 
-    dataset_out = work_path / "dataset"
-    output_out = work_path / "output"
+    # dataset_out = work_path / "dataset"
+    output_out = work_path / f"output_{concept_name}"
     logs_out = work_path / "logs"
     config_file = work_path / f"{concept_name}_config.toml"
 
