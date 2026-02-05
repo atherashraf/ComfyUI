@@ -454,12 +454,13 @@ class PersonLoRATagger:
 
 
 # Quick tagging function
-def quick_tag_person_lora(INPUT_FOLDER):
+def quick_tag_person_lora(INPUT_FOLDER, token):
     """One-click tagging for person LoRA."""
 
     # Configuration
     # INPUT_FOLDER = r"D:\Documents\general\downloads\pics\judi_cropped"  # Your cropped images
-    TOKEN = "sjx"  # Your unique token
+    # TOKEN = "sjx"  # Your unique token
+    TOKEN = token
     USE_BLIP = True  # Auto-captioning
     USE_YOLO = True  # Pose/object detection
 
@@ -504,6 +505,90 @@ def quick_tag_person_lora(INPUT_FOLDER):
     return summary
 
 
+# Manual tagging helper
+def create_manual_captions(input_folder, token="sjx"):
+    """Create manual captions based on image content."""
+
+    # Common caption templates
+    templates = {
+        'front_standing': f"[{token}], full body photo, standing, wearing casual clothes, portrait",
+        'front_sitting': f"[{token}], sitting on chair, full body, indoor, portrait",
+        'side_view': f"[{token}], side view, profile, full body, standing",
+        'back_view': f"[{token}], back view, from behind, full body",
+        'outdoor': f"[{token}], outdoor, full body, standing in park, natural lighting",
+        'indoor': f"[{token}], indoor, full body, standing in room, portrait",
+        'action': f"[{token}], walking, in motion, full body, street photo"
+    }
+
+    input_path = Path(input_folder)
+    image_files = list(input_path.glob('*.jpg')) + list(input_path.glob('*.png'))
+
+    print(f"Creating manual captions for {len(image_files)} images")
+    print("Available templates:")
+    for key, template in templates.items():
+        print(f"  {key}: {template}")
+
+    for img_path in image_files:
+        caption_file = input_path / f"{img_path.stem}.txt"
+
+        if caption_file.exists():
+            print(f"✓ Caption already exists for {img_path.name}")
+            continue
+
+        # Try to guess based on filename
+        img_name = img_path.stem.lower()
+
+        if 'back' in img_name or 'rear' in img_name:
+            caption = templates['back_view']
+        elif 'side' in img_name or 'profile' in img_name:
+            caption = templates['side_view']
+        elif 'sit' in img_name or 'chair' in img_name:
+            caption = templates['front_sitting']
+        elif 'walk' in img_name or 'street' in img_name:
+            caption = templates['action']
+        elif 'outdoor' in img_name or 'park' in img_name:
+            caption = templates['outdoor']
+        else:
+            # Default to front standing
+            caption = templates['front_standing']
+
+        # Save caption
+        with open(caption_file, 'w', encoding='utf-8') as f:
+            f.write(caption)
+
+        print(f"✓ Created caption for {img_path.name}: {caption[:50]}...")
+
+    print(f"\nCreated {len(image_files)} caption files")
+    print("Review and edit as needed!")
+
+
+# Command line interface
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Tag images for person LoRA training')
+    parser.add_argument('--input', type=str, required=True, help='Input folder with images')
+    parser.add_argument('--token', type=str, default='sjx', help='Unique token (default: sjx)')
+    parser.add_argument('--blip', action='store_true', help='Use BLIP for auto-captioning')
+    parser.add_argument('--yolo', action='store_true', help='Use YOLO for pose detection')
+    parser.add_argument('--manual', action='store_true', help='Create manual captions')
+    parser.add_argument('--edit', action='store_true', help='Edit captions manually')
+
+    args = parser.parse_args()
+
+    if args.manual:
+        create_manual_captions(args.input, args.token)
+    else:
+        tagger = PersonLoRATagger(
+            token=args.token,
+            use_blip=args.blip,
+            use_yolo=args.yolo
+        )
+
+        if args.edit:
+            tagger.manual_caption_editor(args.input)
+        else:
+            tagger.tag_folder(args.input)
 
 
 if __name__ == "__main__":
@@ -511,5 +596,5 @@ if __name__ == "__main__":
 
     # Option 1: Quick one-click tagging
     lora_img_dir = Path('data/lora')
-    quick_tag_person_lora(lora_img_dir)
+    quick_tag_person_lora(lora_img_dir, "sjx")
 
