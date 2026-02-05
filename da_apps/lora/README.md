@@ -1,132 +1,309 @@
-Of course! Here's a step-by-step breakdown of the LoRA (Low-Rank Adaptation) training process for a single person using 20+ images, explained from data preparation to final usage.
 
-The goal is to teach a Stable Diffusion model (like SD 1.5 or SDXL) to generate new images of that specific person in various styles and contexts.
+# SDXL Person LoRA — Automated Training Pipeline (Crop → Tag → Train)
 
-### **Core Concept**
-Instead of retraining the entire massive model (billions of parameters), LoRA injects and trains tiny "adaptor" matrices (a few MB) into the cross-attention layers of the U-Net (and sometimes the text encoder). This is efficient, fast, and prevents overfitting.
+This repo provides an end-to-end methodology + automation scripts to train a **single-person LoRA** (SDXL) using a small dataset (20+ images). It focuses on **repeatable structure**, **token consistency**, and **automation** (cropping, captioning, dataset layout, config generation, training + resume, monitoring).
 
 ---
 
-### **Phase 1: Preparation & Data is King (Most Important Step)**
+## Why LoRA?
 
-**Step 1: Image Collection (20+ is a great start)**
-*   **Quantity & Quality:** 20-30 high-quality images are excellent. Prioritize **clarity, good lighting, and resolution**.
-*   **Diversity is Critical:** The model needs to learn the *essence* of the person, not just memorize poses.
-    *   **Angles:** Front, side, 3/4 view.
-    *   **Expressions:** Neutral, smiling, laughing.
-    *   **Lighting:** Indoor, outdoor, studio.
-    *   **Context/Background:** Varied backgrounds help the model separate the person from the scene.
-    *   **Avoid:** Heavy filters, obscured faces (sunglasses, hands), multiple people in the same shot.
-
-**Step 2: Image Processing & Cleaning**
-*   **Crop & Resize:** Crop tightly to the person (especially the face and upper body). Standard resolution is **512x512** for SD1.5 or **1024x1024** for SDXL.
-*   **Face Centering:** The person's face should be roughly central and clear.
-*   **Tools:** Use GUI tools like "Booru dataset tagger" (WD14 tagger) for automatic captioning, or manually crop using any image editor. Batch processing is key.
-
-**Step 3: Captioning / Tagging**
-*   This tells the model *what* it's looking at. **For a person, you typically use a unique identifier token.**
-*   **Method:**
-    1.  **Choose a Rare Token:** Pick a unique identifier you will use to invoke the person. This is typically a random name/word not in the model's vocabulary (e.g., `sjx44x` or `johnnywalker`). Let's use `[sjx]` for this example.
-    2.  **Create Simple Captions:** For each image, write a caption that uses your token and describes the *concepts you want to learn*.
-        *   **GOOD (learns identity):** `[sjx] wearing a black jacket, smiling, portrait photo`
-        *   **GOOD (learns identity + generalizes):** `a photo of [sjx] in a coffee shop`
-        *   **AVOID (describes the exact image too specifically):** `[sjx] in the red shirt on Tuesday at the beach with a specific palm tree` (This will make the model memorize the shirt and palm tree).
-    3.  **What to Omit:** Do **not** caption the obvious/permanent features you want the model to learn (e.g., don't write `[sjx] with blue eyes, sharp jawline`). The model will learn these from the images.
-    4.  **Optional Automation:** Use an automatic captioner (like BLIP) to get a base description (e.g., "a man in a blue shirt smiling"), then **replace the generic term ("a man") with your token `[sjx]`**.
-
-**Step 4: Setting Up the Training Environment**
-*   Use a dedicated UI like **Kohya_SS** (popular for LoRA training) or **ComfyUI + training nodes**. 
-    ```angular2html
-        Windows (Easiest Method):
-            Download the installer: Kohya_SS Windows Installer
-            
-            Run setup.bat - It will install everything automatically
-            
-            Run gui.bat - Launches the web UI
-            
-            Manual Installation (Any OS):
-            bash
-            # Clone the repository
-            git clone https://github.com/bmaltais/kohya_ss
-            cd kohya_ss
-            
-            # Windows
-            setup.bat
-    ```
-* Configure your model base (e.g., `stable-diffusion-v1-5-pruned.ckpt`).
-*   Point the trainer to your prepared `\images` folder and its corresponding `\captions` folder (if separate).
+Instead of retraining a full diffusion model, LoRA trains small low-rank adapters injected into attention layers (few MB). It is:
+- Fast(er) to train
+- Low VRAM friendly (depending on config)
+- Easy to share and reuse
 
 ---
 
-### **Phase 2: Training Configuration**
+## Core Concept: Token-Based Identity
 
-**Step 5: Critical Hyperparameter Settings**
-*   **Rank (`r`):** The "size" of the LoRA matrices. **Start low.**
-    *   For a person with 20+ images: `r=8` or `r=16` is a good start. Higher (32, 64) can lead to overfitting.
-*   **Alpha:** Scales the learned weights. A good rule of thumb is to set **Alpha = Rank** (e.g., r=8, a=8) or **Alpha = Rank/2** (e.g., r=16, a=8).
-*   **Epochs & Steps:**
-    *   **Epoch:** One pass through your entire dataset (20 images).
-    *   **Repeat:** How many times each image is seen per epoch (often set to 1).
-    *   **Total Steps = Number_of_Images * Repeat * Epochs**
-    *   **With 20+ images, start with 20-25 epochs.** This means ~400-500 training steps.
-    *   **This is the most common setting to adjust.** Too few -> underfitting. Too many -> overfitting (person looks "burnt" or melts).
-*   **Learning Rate:** A low, stable rate is key. **`1e-4` is a standard, safe starting point.**
-*   **Optimizer:** `AdamW8bit` or `DAdaptation` (DAdaptAdam) are popular. DAdaptation can automatically find a good learning rate.
-*   **Network Module:** Usually `LoRA`. Target modules are typically `lin` layers in the cross-attention (`--network_module=lycoris.kohya` or similar).
-*   **Scheduler:** `cosine_with_restarts` helps avoid convergence issues.
+To teach the model a specific person, we use a **unique trigger token**, wrapped in brackets:
 
-**Step 6: Start Training**
-*   The trainer will:
-    1.  Load the base model.
-    2.  Inject the low-rank matrices (LoRA) into the specified layers.
-    3.  For each step, take a batch of (image, caption), add noise, and try to predict the noise.
-    4.  **Only the weights in the tiny LoRA matrices are updated.** The original model remains frozen.
-    5.  Save checkpoints (`.safetensors` files) periodically (e.g., every 5 epochs).
+- Token example: `[sjx]` or `[tyffani]`
+
+During training, every image caption starts with that token, so the LoRA learns:
+> “When this token appears, generate *that identity*.”
+
+**Rule:** The token must be **rare** (avoid collisions with normal words).
+- ✅ Good: `[sjx]`, `[tyffani]`, `[zxq_person]`
+- ❌ Bad: `[woman]`, `[man]`, `[model]`
 
 ---
 
-### **Phase 3: Evaluation & Testing**
+## Methodology (Step-by-Step)
 
-**Step 7: The "Preview" During Training**
-*   Kohya_SS often generates sample images during training using a fixed prompt (e.g., `[sjx] in a suit, professional portrait`).
-*   **Monitor these!** You want to see:
-    *   **Early Epochs:** The person's features start to appear, but are blurry/wrong.
-    *   **Good Epoch:** Clear likeness, stable, good features. **THIS IS YOUR GOAL.**
-    *   **Later Epochs (Overfitting):** Images become oversaturated, "cartoony," features distort, or the person starts to appear even in prompts without the `[sjx]` token.
+### Phase 1 — Data Preparation (Most Important)
 
-**Step 8: Testing the Checkpoints**
-*   After training, take the saved `.safetensors` files (e.g., from epoch 15, 20, 25).
-*   Load them into your Stable Diffusion UI (A1111, ComfyUI).
-*   **Test Prompts:**
-    *   **Basic:** `portrait of [sjx], smiling`
-    *   **Style Change:** `[sjx] as a cyberpunk character, neon lighting`
-    *   **Context Change:** `[sjx] hiking in the mountains, photorealistic`
-    *   **Negation Test:** `a photo of a man` (This should **NOT** look like your person. If it does, the LoRA is leaking—sign of overfitting).
+#### 1) Collect Images (20+ is a good start)
+Recommended:
+- 20–30 high quality images minimum (more is better)
+- Variety of:
+  - angles: front / side / 3/4
+  - lighting: indoor / outdoor / studio
+  - distance: close / mid / full body
+  - expressions & poses
 
----
-
-### **Phase 4: Usage**
-
-**Step 9: Applying the Trained LoRA**
-*   In your prompt, you activate the LoRA with a special syntax, e.g., `<lora:sjx_v25:1>`.
-*   The **weight** (`:1` at the end) is crucial:
-    *   `:0.8` - Slightly weaker, often better for blending or style.
-    *   `:1` - Standard strength.
-    *   `:1.2` - Stronger, but risk of artifacts. You often need to lower this if you over-trained.
-
-**Step 10: Prompting with Your LoRA**
-*   **Use your token:** Always include `[sjx]` in your prompt.
-*   **Combine with other LoRAs:** You can use a clothing style LoRA (`<lora:trendy_jacket:0.6>`) alongside your person LoRA (`<lora:sjx_v25:1>`).
-*   **Use negative prompts:** To avoid common artifacts (e.g., `bad hands, deformed, blurry`).
+Avoid:
+- heavy filters
+- occluded faces (hands covering, sunglasses)
+- multiple people in one image
 
 ---
 
-### **Summary Workflow:**
-1.  **Gather & Curate** 20+ diverse, clear images of the person.
-2.  **Process & Caption** them using your unique token (`[sjx]`).
-3.  **Configure Trainer** with a low Rank (~8), moderate Epochs (~20-25), and low LR (~1e-4).
-4.  **Train & Monitor** previews to catch the "sweet spot" epoch.
-5.  **Test** different checkpoints with varied prompts.
-6.  **Use** the best checkpoint in your prompts via `<lora:name:weight>`.
+#### 2) Cropping & Resizing (SDXL = 1024x1024)
+This repo supports:
+- **Full-body cropping (YOLO)** — recommended for person LoRAs
+- **Face-centered cropping** — useful for portrait-heavy datasets
 
-**Pro-Tip:** With 20+ good images, the main challenge is **avoiding overfitting**. Start conservative (low rank, fewer epochs) and run a short test. You can always train more, but you can't "untrain" overfitting.
+Goal:
+- produce consistent 1024x1024 images
+- keep the subject prominent
+- reduce background noise (but keep some diversity)
+
+---
+
+#### 3) Captioning / Tagging (Token-based)
+For each image `image.jpg`, create `image.txt`.
+
+Caption guidelines:
+- Start with the token
+- Keep it simple and general (avoid over-memorization)
+- Don’t describe permanent facial features (the model learns those from images)
+
+Examples:
+
+✅ Good:
+- `[sjx], photo, full body`
+- `a photo of [sjx] standing, studio lighting`
+- `[sjx], portrait photo`
+
+❌ Avoid overly specific memorization:
+- `[sjx] wearing the red shirt on Tuesday at the beach with that palm tree`
+
+Automation:
+- BLIP can create a base caption (e.g., “a woman smiling…”)
+- We replace generic person terms with your token (`[sjx]`) and optionally add YOLO scene objects.
+
+---
+
+## Repo Pipeline Overview (What the code does)
+
+### Step 2 — Cropping
+- `step2_full_body_cropping.py` (YOLO full-body)
+- `step2_face_centered_cropping.py` (face-centered)
+
+**Output:** cropped 1024 images saved into your working folder.
+
+---
+
+### Step 3 — Tagging (Captions + optional metadata)
+- `step3_person_lora_tagger.py`
+
+Creates:
+- `image.txt` caption file beside each image
+- optional per-image metadata `.json`
+- `tagging_summary.json`
+
+**Important:** Your token is passed into `quick_tag_person_lora(folder, token=...)`.
+That token becomes your LoRA trigger token.
+
+---
+
+### Step 4 — Training Setup + Launch (Kohya)
+- `step4_training_setup.py` orchestrates:
+  1. dataset structure creation
+  2. SDXL model download (if missing)
+  3. TOML config generation
+  4. training launch (accelerate)
+
+The training launcher supports resume using `*-state` folders.
+
+---
+
+### Monitoring
+- `monitor_training.py`
+
+Checks:
+- TensorBoard logs if present
+- `.log` files tail
+- `.safetensors` checkpoints in output folder
+
+---
+
+## Folder Structure (Actual Paths)
+
+### Source Images
+You keep raw photos here:
+```
+
+D:\Documents\general\downloads\pics<concept>\
+
+```
+
+### Cropped + Tagged Working Folder (example)
+Usually produced by your entry script:
+```
+
+<repo_root>\output<concept>
+image_001.jpg
+image_001.txt
+image_001_metadata.json (optional)
+tagging_summary.json
+
+```
+
+### Training Workspace (default used by pipeline)
+```
+
+D:\lora_training
+models
+sd_xl_base_1.0.safetensors
+sd_xl_refiner_1.0.safetensors (optional)
+logs
+... <concept>*dataset
+1*<concept> <concept>_0000.jpg <concept>*0000.txt
+...
+output*<concept> <concept>_sdxl_lora-000005.safetensors
+... <concept>-step00000500-state\   (resume state)
+
+````
+
+**Note on repeats:**  
+The dataset folder prefix controls repeats per epoch.
+Example: `1_<concept>` means repeat=1.
+
+---
+
+## Recommended Training Defaults (SDXL Person LoRA)
+
+These are safe starting points:
+- Resolution: **1024**
+- Batch size: **1**
+- Epochs: **20–30**
+- Network dim (rank): **16–64** (your config uses 64)
+- Alpha: typically **rank/2** or **rank**
+- LR: ~ `4e-4` (your config uses `0.0004`)
+- Optimizer: `AdamW8bit`
+- Scheduler: `cosine_with_restarts`
+
+Overfitting symptoms:
+- identity appears even without token
+- faces become “burnt”, distorted, too sharp
+- style locks to a specific outfit/background
+
+Underfitting symptoms:
+- inconsistent face
+- weak resemblance
+- identity changes across generations
+
+---
+
+## How to Run (End-to-End)
+
+### Example entry script
+```py
+from pathlib import Path
+
+from da_apps.lora.steps.step2_full_body_cropping import yolo_fullbody_crop
+from da_apps.lora.steps.step3_person_lora_tagger import quick_tag_person_lora
+from da_apps.lora.steps.step4_training_setup import run_full_training_pipeline
+
+if __name__ == "__main__":
+    concept = "tyffani"
+    token = concept  # token becomes [tyffani]
+
+    data_dir = Path(rf"D:\Documents\general\downloads\pics\{concept}")
+    out_dir = Path(__file__).parent / "output" / concept
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1) Crop to 1024
+    yolo_fullbody_crop(data_dir, out_dir, target_size=1024)
+
+    # 2) Create captions with token
+    quick_tag_person_lora(out_dir, token=token)
+
+    # 3) Setup + train
+    run_full_training_pipeline(out_dir, concept_name=concept)
+````
+
+---
+
+## Using the Trained LoRA
+
+After training, you will get `.safetensors` checkpoints in:
+
+```
+D:\lora_training\output_<concept>\
+```
+
+In SD UIs (A1111 / ComfyUI), you typically load LoRA like:
+
+```
+<lora:tyffani_sdxl_lora:1>
+```
+
+Then prompt with your token:
+**Positive prompt**
+
+```
+a photo of [tyffani], full body, standing in a studio, soft natural lighting, 85mm lens, ultra detailed
+```
+
+**Negative prompt**
+
+```
+low quality, blurry, bad anatomy, extra fingers, extra limbs, watermark, text, logo, cartoon, anime
+```
+
+Weight tips:
+
+* `0.7–0.9` often looks more natural
+* `1.0` standard
+* `>1.1` stronger but can produce artifacts
+
+---
+
+## Troubleshooting
+
+### Cropping misses person
+
+* Some shots are too small/occluded
+* Try face-centered crop for portrait sets
+* Ensure `ultralytics` is installed
+
+### Captions contain wrong token
+
+* Ensure you pass `token=concept` into tagging
+* Verify `.txt` files start with `[your_token]`
+
+### Training won’t resume
+
+* Resume requires `*-state` folders in output directory
+* Make sure state saving is enabled in config
+
+### Identity looks inconsistent
+
+* Add more varied images
+* Reduce epoch count if overfitting
+* Keep captions simpler (avoid clothes/background specificity)
+
+---
+
+## Summary Workflow
+
+1. **Gather** 20+ diverse images of one person
+2. **Crop** to 1024 (YOLO full-body recommended)
+3. **Caption** with a rare token `[token]`
+4. **Prepare dataset** structure for Kohya
+5. **Train** and watch samples/checkpoints
+6. **Test** multiple checkpoints and choose the best
+7. **Use** LoRA with `<lora:NAME:WEIGHT>` + token prompts
+
+```
+
+---
+
+If you want, I can also:
+- **merge your old README sections** (Rank/Alpha math + steps explanation) into this new one (keeping it concise),
+- add a **“Recommended Settings by dataset size (20, 40, 80 images)”** section,
+- add a **“Best practices for captions to avoid memorization”** section with examples from your BLIP/YOLO tagger.
+```
