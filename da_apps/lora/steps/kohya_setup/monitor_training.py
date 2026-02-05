@@ -1,40 +1,42 @@
-# Monitor training logs
-def monitor_training(log_dir="D:/lora_training/logs"):
-    """Monitor training progress."""
-    import json
-    from pathlib import Path
+from __future__ import annotations
 
+from pathlib import Path
+from typing import Optional
+
+
+def monitor_training(log_dir: str = r"D:\lora_training\logs", work_dir: str = r"D:\lora_training") -> None:
     log_path = Path(log_dir)
-
     if not log_path.exists():
         print(f"Log directory not found: {log_dir}")
         return
 
-    # Check for tensorboard logs
     tb_logs = list(log_path.glob("*/events.out.tfevents.*"))
-
     if tb_logs:
         print("TensorBoard logs found. Run:")
-        print(f"tensorboard --logdir {log_dir}")
+        print(f"  tensorboard --logdir \"{log_dir}\"")
     else:
-        # Check text logs
-        text_logs = list(log_path.glob("*.log"))
-        for log_file in text_logs[-3:]:  # Last 3 logs
-            print(f"\n--- {log_file.name} ---")
-            with open(log_file, 'r') as f:
-                lines = f.readlines()[-20:]  # Last 20 lines
+        text_logs = sorted(log_path.glob("*.log"), key=lambda p: p.stat().st_mtime)
+        for lf in text_logs[-3:]:
+            print(f"\n--- {lf.name} ---")
+            try:
+                lines = lf.read_text(encoding="utf-8", errors="ignore").splitlines()[-30:]
                 for line in lines:
-                    print(line.strip())
+                    print(line)
+            except Exception as e:
+                print(f"(Could not read {lf.name}: {e})")
 
-    # Check output folder for checkpoints
-    output_path = Path("D:/lora_training/output")
-    if output_path.exists():
-        lora_files = list(output_path.glob("*.safetensors"))
-        print(f"\nFound {len(lora_files)} LoRA checkpoints")
-        for lora in lora_files[-5:]:  # Last 5 checkpoints
-            print(f"  - {lora.name}")
+    work = Path(work_dir)
+    outs = sorted([p for p in work.glob("output_*") if p.is_dir()], key=lambda p: p.stat().st_mtime)
+    if not outs:
+        return
+
+    newest = outs[-1]
+    ckpts = list(newest.glob("*.safetensors"))
+    print(f"\nLatest output: {newest}")
+    print(f"Found {len(ckpts)} LoRA checkpoints")
+    for p in sorted(ckpts, key=lambda x: x.stat().st_mtime)[-5:]:
+        print(f"  - {p.name}")
 
 
 if __name__ == "__main__":
-    # Run monitoring
     monitor_training()
