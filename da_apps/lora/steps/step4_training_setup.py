@@ -32,38 +32,6 @@ from da_apps.lora.steps.kohya_setup.structure_setup import prepare_kohya_structu
                 └── sd_xl_refiner_1.0.safetensors
 """
 
-# def prepare_kahay_training_setup(input_folder , output_folder=Path("D:\lora_training"), concept_name="judi"):
-#     prepare_kohya_structure(
-#         source_folder= input_folder,  #r"D:\Documents\general\downloads\pics\judi_cropped",
-#         output_folder= output_folder, #r"D:\lora_training",
-#         concept_name= concept_name #"judi"
-#     )
-#     sdxl_dir = output_folder / "models"
-#     sdxl_dir.mkdir(parents=True, exist_ok=True)
-#     download_sdxl_models(sdxl_dir)
-#     generate_kohya_config(output_folder  / "sdxl_fullbody_lora_config.json")
-#     # Automatic training without GUI
-#     train_sdxl_lora_auto()
-
-# def prepare_kahay_training_setup(input_folder, output_folder=Path("D:/lora_training"), concept_name="judi"):
-#     # 1. Prepare Structure
-#     prepare_kohya_structure(source_folder=input_folder, output_folder=output_folder, concept_name=concept_name)
-#
-#     # 2. Download Models
-#     sdxl_dir = output_folder / "models"
-#     sdxl_dir.mkdir(parents=True, exist_ok=True)
-#     download_sdxl_models(sdxl_dir)
-#
-#     # 3. Generate Config (Save the path!)
-#     config_path = output_folder / "sdxl_fullbody_lora_config.json"
-#     generate_kohya_config(str(config_path))
-#
-#     # 4. Train (Pass the config path!)
-#     train_sdxl_lora_auto(config_path)
-
-#
-# if __name__ == "__main__":
-#     prepare_kahay_training_setup(r"D:\Your\Input\Images")
 
 
 
@@ -111,7 +79,8 @@ def run_full_training_pipeline(
         train_data_dir=dataset_dir,
         output_dir=output_out,
         logging_dir=logs_out,
-        model_path=base_model_file  # Passing the specific file path
+        model_path=base_model_file,  # Passing the specific file path
+        concept_name=concept_name
     )
 
     # 4. Start Training
@@ -125,6 +94,7 @@ if __name__ == "__main__":
 
     run_full_training_pipeline(
         input_images_folder=source_images,
-        concept_name="judi"
+        # concept_name="judi"
+        concept_name="ohwx"
     )
 

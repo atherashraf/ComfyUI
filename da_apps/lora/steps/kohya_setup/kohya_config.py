@@ -3,7 +3,7 @@ import toml
 # from pathlib import Path
 
 
-def generate_kohya_config(output_file, train_data_dir, output_dir, logging_dir, model_path):
+def generate_kohya_config(output_file, train_data_dir, output_dir, logging_dir, model_path,concept_name):
     """
     Generates TOML config for SDXL training (Low VRAM + Resume Support).
     """
@@ -39,7 +39,7 @@ def generate_kohya_config(output_file, train_data_dir, output_dir, logging_dir, 
         },
         "training_arguments": {
             "output_dir": str(output_dir),
-            "output_name": "judi_sdxl_lora",
+            "output_name": f"{concept_name}_sdxl_lora",
             "save_precision": "fp16",
             "save_every_n_epochs": 5,
 

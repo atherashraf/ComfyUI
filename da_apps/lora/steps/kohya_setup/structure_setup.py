@@ -27,6 +27,7 @@ def prepare_kohya_structure(source_folder, output_folder, concept_name="judi"):
     # The number at the start of the folder name determines repeats.
     # 1 repeat * 148 images * 30 epochs = ~4,500 steps (Perfect for LoRA)
     concept_folder = dataset_parent / f"1_{concept_name}"
+    # concept_folder = dataset_parent / f"40_{concept_name}"
 
     if concept_folder.exists():
         print(f"Cleaning up old folder: {concept_folder}")

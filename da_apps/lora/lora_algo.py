@@ -5,7 +5,7 @@ from da_apps.lora.steps.step3_person_lora_tagger import quick_tag_person_lora
 from da_apps.lora.steps.step4_training_setup import run_full_training_pipeline
 
 if __name__ == "__main__":
-    concept= "mahi"
+    concept= "tyffani"
     lora_img_dir = Path(__file__).parent / f"output/{concept}"
     lora_img_dir.mkdir(parents=True, exist_ok=True)
     data_dir = Path(rf"D:\Documents\general\downloads\pics\{concept}")
