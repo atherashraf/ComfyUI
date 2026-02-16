@@ -11,6 +11,8 @@ from pydantic import BaseModel
 import base64
 import traceback
 from PIL import Image
+from starlette.responses import FileResponse
+from starlette.staticfiles import StaticFiles
 
 from da_apps.scripts.inpainting import run_inpainting_comfy
 from da_apps.scripts.smart_model_cache import SmartModelCache, DEVICE
@@ -85,8 +87,8 @@ gpu_lock = asyncio.Lock()
 async def image_mask(payload: ImageMaskRequest):
     try:
         job_id = uuid.uuid4().hex[:8]
-        print(f"\n[{job_id}] Starting job with checkpoint: {payload.checkpoint_file}")
-        print(f"[{job_id}] Full payload: {payload.model_dump_json()}")  # ADD THIS LINE
+        # print(f"\n[{job_id}] Starting job with checkpoint: {payload.checkpoint_file}")
+        # print(f"[{job_id}] Full payload: {payload.model_dump_json()}")  # ADD THIS LINE
 
         img_path = input_dir / f"{job_id}_image.png"
         mask_path = input_dir / f"{job_id}_mask.png"
@@ -102,14 +104,14 @@ async def image_mask(payload: ImageMaskRequest):
         # 2) Load IMAGE safely
         with Image.open(img_path) as im:
             im.load()
-            print(f"[{job_id}] Input Image: {im.mode} {im.size}")
+            # print(f"[{job_id}] Input Image: {im.mode} {im.size}")
 
             if im.mode == "RGBA":
                 r, g, b, a = im.split()
                 img = Image.merge("RGB", (r, g, b))
                 final_img_path = input_dir / f"{job_id}_image_fixed.jpg"
                 img.save(final_img_path, format="JPEG", quality=100)
-                print(f"[{job_id}] Converted RGBA -> RGB")
+                # print(f"[{job_id}] Converted RGBA -> RGB")
             else:
                 img = im.convert("RGB")
                 final_img_path = img_path
@@ -127,7 +129,7 @@ async def image_mask(payload: ImageMaskRequest):
             raise HTTPException(status_code=413, detail="Image too large. Please upload <= 4K.")
 
         # 4) Run Inpainting (locked to 1 GPU job at a time)
-        print(f"[{job_id}] Starting Inpainting with: {payload.checkpoint_file}")
+        print(f"[{job_id}] Starting Inpainting")
         async with gpu_lock:
             # Load model from cache
             model, clip, vae = model_cache.load_checkpoint(payload.checkpoint_file)
@@ -216,6 +218,25 @@ async def health():
         "device": str(DEVICE),
         "cache_info": model_cache.get_cache_info()
     }
+
+# ----------------------------
+# Serve PhotoAI Studio build
+# ----------------------------
+PS_DIST_DIR = Path(__file__).resolve().parent / "photoai-studio" / "dist"
+
+if PS_DIST_DIR.exists():
+    # Serve assets (js/css/images) under /api/ps
+    app.mount("/api/ps", StaticFiles(directory=str(PS_DIST_DIR), html=True), name="photoai-studio")
+
+    # SPA fallback: deep links like /api/ps/settings should serve index.html
+    @app.get("/api/ps/{full_path:path}")
+    async def ps_spa_fallback(full_path: str):
+        index_file = PS_DIST_DIR / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+        raise HTTPException(status_code=404, detail="PhotoAI Studio build not found (index.html missing).")
+else:
+    print(f"[WARN] PhotoAI Studio dist not found at: {PS_DIST_DIR}")
 
 
 if __name__ == "__main__":

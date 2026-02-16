@@ -3,7 +3,7 @@ import PhotoAIStudioPage from "./pages/PhotoAIStudioPage";
 
 export default function AppRoutes() {
     return (
-        <Routes>
+        <Routes >
             <Route path="/" element={<PhotoAIStudioPage />} />
         </Routes>
     );

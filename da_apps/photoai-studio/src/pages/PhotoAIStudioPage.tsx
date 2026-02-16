@@ -8,19 +8,34 @@ import {
     Drawer,
     Box,
     Button,
+    Menu,
+    MenuItem,
 } from "@mui/material";
+
 import MenuIcon from "@mui/icons-material/Menu";
 import ClearIcon from "@mui/icons-material/Clear";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import CloseIcon from "@mui/icons-material/Close";
 
-import { usePhotopeaBridge } from "../hooks/usePhotopeaBridge";
-import { useInpaintingState } from "../hooks/useInpaintingState";
+
+import {usePhotopeaBridge} from "../hooks/usePhotopeaBridge";
+import {useInpaintingState} from "../hooks/useInpaintingState";
 import InpaintingPanel from "../components/modules/inpainting/InpaintingPanel";
+
 
 const APPBAR_H = 60;
 const DRAWER_W = 380;
 
 export default function PhotoStudioPage() {
     const [drawerOpen, setDrawerOpen] = React.useState(false);
+
+    // AppBar dropdown menu state
+    const [actionAnchor, setActionAnchor] = React.useState<null | HTMLElement>(null);
+    const actionOpen = Boolean(actionAnchor);
+
+    const openActionMenu = (e: React.MouseEvent<HTMLElement>) => setActionAnchor(e.currentTarget);
+    const closeActionMenu = () => setActionAnchor(null);
 
     const inpaintingState = useInpaintingState();
 
@@ -30,6 +45,7 @@ export default function PhotoStudioPage() {
         apiUrl,
         setApiUrl,
         startInpaint,
+        copyActiveLayerToClipboard,
         openHint,
         saveHint,
         isLoading,
@@ -48,42 +64,90 @@ export default function PhotoStudioPage() {
     };
 
     return (
-        <Box sx={{ width: "100vw", height: "100vh", overflow: "hidden" }}>
-            <AppBar position="static" sx={{ height: `${APPBAR_H}px` }}>
-                <Toolbar sx={{ minHeight: `${APPBAR_H}px` }}>
+        <Box sx={{width: "100vw", height: "100vh", overflow: "hidden"}}>
+            {/* AppBar ALWAYS ABOVE drawer */}
+            <AppBar
+                position="fixed"
+                sx={(theme) => ({
+                    height: `${APPBAR_H}px`,
+                    zIndex: theme.zIndex.drawer + 2,
+                })}
+            >
+                <Toolbar sx={{minHeight: `${APPBAR_H}px`}}>
+                    {/* Dropdown button (Menu icon) */}
                     <IconButton
                         edge="start"
                         color="inherit"
-                        onClick={() => setDrawerOpen(prev => !prev)}
-                        sx={{ mr: 1 }}
+                        onClick={openActionMenu}
+                        sx={{mr: 1}}
+                        aria-controls={actionOpen ? "appbar-actions" : undefined}
+                        aria-haspopup="true"
+                        aria-expanded={actionOpen ? "true" : undefined}
                     >
-                        <MenuIcon />
+                        <MenuIcon/>
                     </IconButton>
 
+                    {/* Dropdown menu */}
+                    <Menu
+                        id="appbar-actions"
+                        anchorEl={actionAnchor}
+                        open={actionOpen}
+                        onClose={closeActionMenu}
+                        anchorOrigin={{vertical: "bottom", horizontal: "left"}}
+                        transformOrigin={{vertical: "top", horizontal: "left"}}
+                    >
+                        <MenuItem
+                            onClick={() => {
+                                closeActionMenu();
+                                setDrawerOpen((p) => !p); // ✅ toggle works always
+                            }}
+                        >
+                            <AutoFixHighIcon fontSize="small" style={{marginRight: 8}}/>
+                            Inpainting Panel
+                        </MenuItem>
 
-                    <Typography variant="h6" sx={{ flex: 1 }}>
+                        <MenuItem
+                            onClick={async () => {
+                                closeActionMenu();
+                                try {
+                                    await copyActiveLayerToClipboard();
+                                } catch (e) {
+                                    console.error(e);
+                                    alert(e instanceof Error ? e.message : String(e));
+                                }
+                            }}
+                        >
+                            <ContentCopyIcon fontSize="small" style={{marginRight: 8}}/>
+                            Copy Active Layer
+                        </MenuItem>
+                    </Menu>
+
+                    <Typography variant="h6" sx={{flex: 1}}>
                         PhotoAIStudio
                     </Typography>
 
                     {inpaintingState.hasPrompts && (
                         <Button
                             color="inherit"
-                            startIcon={<ClearIcon />}
+                            startIcon={<ClearIcon/>}
                             onClick={handleClearPrompts}
                             size="small"
-                            sx={{ mr: 2 }}
+                            sx={{mr: 2}}
                         >
                             Clear Prompts
                         </Button>
                     )}
 
-                    <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    <Typography variant="body2" sx={{opacity: 0.9}}>
                         {status.label}
                     </Typography>
                 </Toolbar>
             </AppBar>
 
-            {/* Content row: Photopea + Drawer (drawer takes space, not overlay) */}
+            {/* push content below fixed AppBar */}
+            <Box sx={{height: `${APPBAR_H}px`}}/>
+
+            {/* Content row: Photopea + Drawer */}
             <Box
                 sx={{
                     display: "flex",
@@ -93,12 +157,12 @@ export default function PhotoStudioPage() {
                     overflow: "hidden",
                 }}
             >
-                {/* Photopea area (fills remaining space) */}
+                {/* Photopea area */}
                 <Box
                     sx={{
                         position: "relative",
                         flex: 1,
-                        minWidth: 0, // ✅ crucial so the iframe can shrink when drawer opens
+                        minWidth: 0,
                         height: "100%",
                         overflow: "hidden",
                     }}
@@ -135,7 +199,7 @@ export default function PhotoStudioPage() {
                     />
                 </Box>
 
-                {/* Right drawer: width is 0 when closed, DRAWER_W when open */}
+                {/* Right drawer - constrained below AppBar */}
                 <Drawer
                     anchor="right"
                     variant="persistent"
@@ -148,32 +212,55 @@ export default function PhotoStudioPage() {
                             width: drawerOpen ? DRAWER_W : 0,
                             boxSizing: "border-box",
                             overflowX: "hidden",
-                            position: "relative", // ✅ keeps it in the flex flow (prevents overlay feel)
-                            transition: (theme) =>
-                                theme.transitions.create("width", {
-                                    easing: theme.transitions.easing.sharp,
-                                    duration: theme.transitions.duration.enteringScreen,
-                                }),
+                            position: "relative",
+                            height: "100%",
+                            display: "flex",
+                            flexDirection: "column",
                         },
                     }}
                 >
-                    <InpaintingPanel
-                        selectedCheckpoint={inpaintingState.selectedCheckpoint}
-                        setSelectedCheckpoint={inpaintingState.setSelectedCheckpoint}
-                        checkpoints={inpaintingState.checkpoints}
-                        positivePrompt={inpaintingState.positivePrompt}
-                        setPositivePrompt={inpaintingState.setPositivePrompt}
-                        negativePrompt={inpaintingState.negativePrompt}
-                        setNegativePrompt={inpaintingState.setNegativePrompt}
-                        apiUrl={apiUrl}
-                        setApiUrl={setApiUrl}
-                        status={status}
-                        startInpaint={handleStartInpaint}
-                        openHint={openHint}
-                        saveHint={saveHint}
-                        onClearPrompts={handleClearPrompts}
-                    />
+                    {/* Drawer header */}
+                    <Box
+                        sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            px: 1.5,
+                            py: 1,
+                            borderBottom: "1px solid rgba(255,255,255,0.12)",
+                        }}
+                    >
+                        <Typography variant="subtitle1">Inpainting</Typography>
+                        <IconButton
+                            size="small"
+                            onClick={() => setDrawerOpen(false)}
+                            aria-label="Close panel"
+                        >
+                            <CloseIcon fontSize="small"/>
+                        </IconButton>
+                    </Box>
+
+                    {/* Drawer content */}
+                    <Box sx={{flex: 1, overflow: "auto"}}>
+                        <InpaintingPanel
+                            selectedCheckpoint={inpaintingState.selectedCheckpoint}
+                            setSelectedCheckpoint={inpaintingState.setSelectedCheckpoint}
+                            checkpoints={inpaintingState.checkpoints}
+                            positivePrompt={inpaintingState.positivePrompt}
+                            setPositivePrompt={inpaintingState.setPositivePrompt}
+                            negativePrompt={inpaintingState.negativePrompt}
+                            setNegativePrompt={inpaintingState.setNegativePrompt}
+                            apiUrl={apiUrl}
+                            setApiUrl={setApiUrl}
+                            status={status}
+                            startInpaint={handleStartInpaint}
+                            openHint={openHint}
+                            saveHint={saveHint}
+                            onClearPrompts={handleClearPrompts}
+                        />
+                    </Box>
                 </Drawer>
+
             </Box>
         </Box>
     );

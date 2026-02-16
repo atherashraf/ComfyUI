@@ -6,13 +6,13 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
   return {
-    base: "/",
+    base: "/api/ps/",
     plugins: [react()],
 
     clearScreen: false,
 
     server: {
-      port: parseInt(env.VITE_DEV_PORT || "5173", 10),
+      port: parseInt(env.VITE_DEV_PORT || "5156", 10),
       strictPort: true,
       fs: { allow: [".."] },
 

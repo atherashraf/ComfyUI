@@ -4,7 +4,7 @@ import AppRoutes from "./AppRoutes";
 
 export default function App() {
     return (
-        <BrowserRouter>
+        <BrowserRouter basename="/api/ps">
             <CssBaseline />
             <AppRoutes />
         </BrowserRouter>

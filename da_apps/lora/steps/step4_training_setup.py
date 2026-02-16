@@ -23,11 +23,12 @@ def run_full_training_pipeline(
     concept_name: str = "judi",
     repeats: int = 1,
 ) -> Dict[str, Path]:
-    print(f"=== Starting LoRA Pipeline for '{concept_name}' ===")
+    print(f"=== Starting LoRA Pipeline for '{concept_name}' repeated {repeats} ===")
 
     work_path = Path(working_dir)
     models_path = work_path / "models"
     base_model_file = models_path / "sd_xl_base_1.0.safetensors"
+    # base_model_file = models_path / "pwsbeauty_v04.safetensors"
 
     output_dir = work_path / f"output_{concept_name}"
     logs_dir = work_path / "logs"

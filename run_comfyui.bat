@@ -54,6 +54,5 @@ echo.
 REM ---- Recommended launch for 8GB VRAM
 REM ----- python main.py --lowvram --cpu-vae --use-split-cross-attention
 python main.py --lowvram --use-split-cross-attention
-
 echo.
 pause

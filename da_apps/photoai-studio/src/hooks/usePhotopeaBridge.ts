@@ -1,174 +1,189 @@
+// hooks/usePhotopeaBridge.ts
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import type { CheckpointOption } from "@/hooks/useInpaintingState.ts";
 
 export const DEFAULT_COMFY_URL =
-    import.meta.env.VITE_COMFY_URL || "http://127.0.0.1:8188";
+  import.meta.env.VITE_COMFY_URL ||
+  (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:8000");
 
 export type InpaintingStatusType = "idle" | "processing" | "success" | "error";
 
 export type InpaintingStatus = {
-    type: InpaintingStatusType;
-    label: string;
-    message: string;
+  type: InpaintingStatusType;
+  label: string;
+  message: string;
 };
 
 type BackendInpaintResponse = {
-    image?: string; // may be "data:..." or base64
-    detail?: string;
+  image?: string; // may be "data:..." or base64
+  detail?: string;
 };
 
 function statusLabel(type: InpaintingStatusType): string {
-    switch (type) {
-        case "idle":
-            return "Idle";
-        case "processing":
-            return "Processing";
-        case "success":
-            return "Success";
-        case "error":
-            return "Error";
-    }
+  switch (type) {
+    case "idle":
+      return "Idle";
+    case "processing":
+      return "Processing";
+    case "success":
+      return "Success";
+    case "error":
+      return "Error";
+  }
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let bin = "";
-    const chunkSize = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-        bin += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-    }
-    return btoa(bin);
+  const bytes = new Uint8Array(buffer);
+  let bin = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(bin);
 }
 
+function normalizeBaseUrl(u: string): string {
+  return String(u || "").trim().replace(/\/+$/, "");
+}
+
+async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
+  const r = await fetch(dataUrl);
+  return await r.blob();
+}
+
+
 export function usePhotopeaBridge() {
-    const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
-    const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
-    const [status, setStatus] = useState<InpaintingStatus>({
-        type: "idle",
-        label: "Ready",
-        message: "Ready",
+  // Web-only API base URL (FastAPI)
+  const [apiUrl, setApiUrl] = useState<string>(DEFAULT_COMFY_URL);
+
+  const [status, setStatus] = useState<InpaintingStatus>({
+    type: "idle",
+    label: "Ready",
+    message: "Ready",
+  });
+
+  const updateStatus = useCallback((type: InpaintingStatusType, message: string) => {
+    setStatus({
+      type,
+      label: statusLabel(type),
+      message,
     });
+  }, []);
 
-    const updateStatus = useCallback((type: InpaintingStatusType, message: string) => {
-        setStatus({
-            type,
-            label: statusLabel(type),
-            message,
-        });
-    }, []);
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
 
-    useEffect(() => {
-        const iframe = iframeRef.current;
-        if (!iframe) return;
+    const onLoad = () => {
+      setIsLoading(false);
+      updateStatus(
+        "idle",
+        import.meta.env.DEV
+          ? "Photopea ready • Dev proxy: /api → FastAPI"
+          : "Photopea ready • Web prod → FastAPI"
+      );
+    };
 
-        const onLoad = () => {
-            setIsLoading(false);
-            updateStatus(
-                "idle",
-                import.meta.env.DEV
-                    ? "Photopea ready • Dev proxy: /api → ComfyUI"
-                    : "Photopea ready • Prod: Tauri proxy → ComfyUI"
-            );
-        };
+    iframe.addEventListener("load", onLoad);
+    return () => iframe.removeEventListener("load", onLoad);
+  }, [updateStatus]);
 
-        iframe.addEventListener("load", onLoad);
-        return () => iframe.removeEventListener("load", onLoad);
-    }, [updateStatus]);
+  const runPhotopea = useCallback((script: string) => {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentWindow) throw new Error("Photopea iframe not ready");
+    iframe.contentWindow.postMessage(script, "https://www.photopea.com");
+  }, []);
 
-    const runPhotopea = useCallback((script: string) => {
-        const iframe = iframeRef.current;
-        if (!iframe?.contentWindow) throw new Error("Photopea iframe not ready");
-        iframe.contentWindow.postMessage(script, "https://www.photopea.com");
-    }, []);
+  const exportPng = useCallback(
+    async (script: string, timeout = 20000): Promise<string> => {
+      return new Promise<string>((resolve, reject) => {
+        let buffer: ArrayBuffer | null = null;
 
-    const exportPng = useCallback(
-        async (script: string, timeout = 20000): Promise<string> => {
-            return new Promise<string>((resolve, reject) => {
-                let buffer: ArrayBuffer | null = null;
+        const handler = (e: MessageEvent) => {
+          if (e.origin !== "https://www.photopea.com") return;
 
-                const handler = (e: MessageEvent) => {
-                    if (e.origin !== "https://www.photopea.com") return;
+          if (e.data instanceof ArrayBuffer) {
+            buffer = e.data;
+            return;
+          }
 
-                    if (e.data instanceof ArrayBuffer) {
-                        buffer = e.data;
-                        return;
-                    }
+          if (e.data === "done") {
+            window.removeEventListener("message", handler);
 
-                    if (e.data === "done") {
-                        window.removeEventListener("message", handler);
-
-                        if (!buffer) {
-                            reject(new Error("No data returned from Photopea"));
-                            return;
-                        }
-
-                        const b64 = arrayBufferToBase64(buffer);
-                        resolve("data:image/png;base64," + b64);
-                    }
-                };
-
-                window.addEventListener("message", handler);
-                runPhotopea(script);
-
-                window.setTimeout(() => {
-                    window.removeEventListener("message", handler);
-                    reject(new Error("Photopea export timeout (20s)"));
-                }, timeout);
-            });
-        },
-        [runPhotopea]
-    );
-
-    const loadImage = useCallback((src: string): Promise<HTMLImageElement> => {
-        return new Promise((res, rej) => {
-            const img = new Image();
-            img.onload = () => res(img);
-            img.onerror = () => rej(new Error("Failed to load image"));
-            img.src = src;
-        });
-    }, []);
-
-    const alphaToMask = useCallback(
-        async (pngDataUrl: string): Promise<string> => {
-            const img = await loadImage(pngDataUrl);
-
-            const c = document.createElement("canvas");
-            c.width = img.width;
-            c.height = img.height;
-
-            const ctx = c.getContext("2d");
-            if (!ctx) throw new Error("Canvas context not available");
-
-            ctx.drawImage(img, 0, 0);
-
-            const im = ctx.getImageData(0, 0, c.width, c.height);
-            const d = im.data;
-
-            for (let i = 0; i < d.length; i += 4) {
-                const alpha = d[i + 3];
-                const inv = 255 - alpha;
-
-                d[i] = inv;
-                d[i + 1] = inv;
-                d[i + 2] = inv;
-                d[i + 3] = 255;
+            if (!buffer) {
+              reject(new Error("No data returned from Photopea"));
+              return;
             }
 
-            ctx.putImageData(im, 0, 0);
-            return c.toDataURL("image/png");
-        },
-        [loadImage]
-    );
+            const b64 = arrayBufferToBase64(buffer);
+            resolve("data:image/png;base64," + b64);
+          }
+        };
 
-    const getImage = useCallback(async (): Promise<string> => {
-        return exportPng(`app.activeDocument.saveToOE("png");`);
-    }, [exportPng]);
+        window.addEventListener("message", handler);
+        runPhotopea(script);
 
-    const getLayerOnly = useCallback(async (): Promise<string> => {
-        const script = `
+        window.setTimeout(() => {
+          window.removeEventListener("message", handler);
+          reject(new Error("Photopea export timeout (20s)"));
+        }, timeout);
+      });
+    },
+    [runPhotopea]
+  );
+
+  const loadImage = useCallback((src: string): Promise<HTMLImageElement> => {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = () => rej(new Error("Failed to load image"));
+      img.src = src;
+    });
+  }, []);
+
+  const alphaToMask = useCallback(
+    async (pngDataUrl: string): Promise<string> => {
+      const img = await loadImage(pngDataUrl);
+
+      const c = document.createElement("canvas");
+      c.width = img.width;
+      c.height = img.height;
+
+      const ctx = c.getContext("2d");
+      if (!ctx) throw new Error("Canvas context not available");
+
+      ctx.drawImage(img, 0, 0);
+
+      const im = ctx.getImageData(0, 0, c.width, c.height);
+      const d = im.data;
+
+      // invert alpha to grayscale mask (white = inpaint area)
+      for (let i = 0; i < d.length; i += 4) {
+        const alpha = d[i + 3];
+        const inv = 255 - alpha;
+
+        d[i] = inv;
+        d[i + 1] = inv;
+        d[i + 2] = inv;
+        d[i + 3] = 255;
+      }
+
+      ctx.putImageData(im, 0, 0);
+      return c.toDataURL("image/png");
+    },
+    [loadImage]
+  );
+
+  const getImage = useCallback(async (): Promise<string> => {
+    return exportPng(`app.activeDocument.saveToOE("png");`);
+  }, [exportPng]);
+
+  const getLayerOnly = useCallback(async (): Promise<string> => {
+    const script = `
       var doc = app.activeDocument;
       var state = [];
       for (var i = 0; i < doc.layers.length; i++) {
@@ -182,14 +197,14 @@ export function usePhotopeaBridge() {
           doc.layers[i].visible = state[i];
       }
     `;
-        return exportPng(script);
-    }, [exportPng]);
+    return exportPng(script);
+  }, [exportPng]);
 
-    const addImageAsNewLayer = useCallback(
-        async (pngDataUrl: string, layerName = "AI Result"): Promise<void> => {
-            const safeName = String(layerName).replace(/"/g, '\\"');
+  const addImageAsNewLayer = useCallback(
+    async (pngDataUrl: string, layerName = "AI Result"): Promise<void> => {
+      const safeName = String(layerName).replace(/"/g, '\\"');
 
-            const script = `
+      const script = `
         var resource = "${pngDataUrl}";
         app.open(resource, null, true);
         app.activeDocument.activeLayer.name = "${safeName}";
@@ -197,95 +212,115 @@ export function usePhotopeaBridge() {
           app.activeDocument.activeLayer.rasterize(RasterizeType.ENTIRELAYER);
         }
       `;
-            runPhotopea(script);
-        },
-        [runPhotopea]
-    );
+      runPhotopea(script);
+    },
+    [runPhotopea]
+  );
 
-    // Helper: call ComfyUI via Vite proxy in dev, via Tauri in prod
-    const callInpaintApi = useCallback(async (payload: unknown): Promise<BackendInpaintResponse> => {
-        if (import.meta.env.DEV) {
-            const r = await fetch(`/api/image-mask`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
+ /*** calling inpainting from fastapi ***/
+  const callInpaintApi = useCallback(
+    async (payload: unknown): Promise<BackendInpaintResponse> => {
+      const base = normalizeBaseUrl(apiUrl);
 
-            const data = (await r.json()) as BackendInpaintResponse;
-            if (!r.ok) throw new Error(data.detail || "Backend error");
-            return data;
-        }
+      // In dev, if you have Vite proxy set up, you can keep relative path by setting apiUrl=""
+      // but default behavior is absolute, which works both in dev and when served by FastAPI.
+      const url = base ? `${base}/api/image-mask` : `/api/image-mask`;
 
-        // Production: go through Rust (prevents Origin mismatch 403)
-        const data = (await invoke("comfy_post_json", {
-            path: "/api/image-mask",
-            body: payload,
-        })) as BackendInpaintResponse;
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-        return data;
-    }, []);
+      const data = (await r.json()) as BackendInpaintResponse;
+      if (!r.ok) throw new Error(data.detail || "Backend error");
+      return data;
+    },
+    [apiUrl]
+  );
 
-    const startInpaint = useCallback(
-        async (
-            positivePrompt: string,
-            negativePrompt: string,
-            checkpoint: CheckpointOption
-        ): Promise<void> => {
-            try {
-                updateStatus("processing", `Exporting image with ${checkpoint.name}…`);
-                const image = await getImage();
+  const startInpaint = useCallback(
+    async (positivePrompt: string, negativePrompt: string, checkpoint: CheckpointOption): Promise<void> => {
+      try {
+        updateStatus("processing", `Exporting image with ${checkpoint.name}…`);
+        const image = await getImage();
 
-                updateStatus("processing", "Extracting mask…");
-                const alphaImage = await getLayerOnly();
-                const mask = await alphaToMask(alphaImage);
+        updateStatus("processing", "Extracting mask…");
+        const alphaImage = await getLayerOnly();
+        const mask = await alphaToMask(alphaImage);
 
-                updateStatus("processing", `Sending to AI (${checkpoint.name})…`);
+        updateStatus("processing", `Sending to AI (${checkpoint.name})…`);
 
-                const payload = {
-                    image,
-                    mask,
-                    positive_prompt: positivePrompt,
-                    negative_prompt: negativePrompt,
-                    checkpoint_file: checkpoint.file,
-                    checkpoint_name: checkpoint.name,
-                };
+        const payload = {
+          image,
+          mask,
+          positive_prompt: positivePrompt,
+          negative_prompt: negativePrompt,
+          checkpoint_file: checkpoint.file,
+          checkpoint_name: checkpoint.name,
+        };
 
-                const data = await callInpaintApi(payload);
+        const data = await callInpaintApi(payload);
 
-                updateStatus("success", `Result received from ${checkpoint.name}`);
-                const imgField = data.image || "";
+        updateStatus("success", `Result received from ${checkpoint.name}`);
+        const imgField = data.image || "";
 
-                const resultImage = imgField.startsWith("data:")
-                    ? imgField
-                    : "data:image/png;base64," + imgField;
+        const resultImage = imgField.startsWith("data:")
+          ? imgField
+          : "data:image/png;base64," + imgField;
 
-                await addImageAsNewLayer(resultImage, `AI Result (${checkpoint.name})`);
-            } catch (e: unknown) {
-                console.error(e);
-                const msg = e instanceof Error ? e.message : String(e);
-                updateStatus("error", msg);
-                alert("Error: " + msg);
-            }
-        },
-        [addImageAsNewLayer, alphaToMask, callInpaintApi, getImage, getLayerOnly, updateStatus]
-    );
+        await addImageAsNewLayer(resultImage, `AI Result (${checkpoint.name})`);
+      } catch (e: unknown) {
+        console.error(e);
+        const msg = e instanceof Error ? e.message : String(e);
+        updateStatus("error", msg);
+        alert("Error: " + msg);
+      }
+    },
+    [addImageAsNewLayer, alphaToMask, callInpaintApi, getImage, getLayerOnly, updateStatus]
+  );
 
-    const openHint = useCallback(() => {
-        alert("Use Photopea → File → Open");
-    }, []);
+  const openHint = useCallback(() => {
+    alert("Use Photopea → File → Open");
+  }, []);
 
-    const saveHint = useCallback(() => {
-        alert("Use Photopea → File → Save");
-    }, []);
+  const saveHint = useCallback(() => {
+    alert("Use Photopea → File → Save");
+  }, []);
 
-    return {
-        iframeRef,
-        status,
-        startInpaint,
-        openHint,
-        saveHint,
-        isLoading,
-        // optional debug info:
-        comfyUrl: DEFAULT_COMFY_URL,
-    };
+  /** copy to clipboard **/
+  const copyActiveLayerToClipboard = useCallback(async (): Promise<void> => {
+  // Export only active layer as PNG data URL
+  updateStatus("processing", "Exporting active layer…");
+  const layerPng = await getLayerOnly(); // already exports selected layer only
+
+  updateStatus("processing", "Copying to clipboard…");
+  const blob = await dataUrlToBlob(layerPng);
+
+  // Clipboard image write requires secure context (https OR localhost)
+  if (!navigator.clipboard || !(window as any).ClipboardItem) {
+    throw new Error("Clipboard image API not available in this browser.");
+  }
+
+  // Must be triggered by user gesture (button click)
+  const item = new (window as any).ClipboardItem({ [blob.type]: blob });
+  await navigator.clipboard.write([item]);
+
+  updateStatus("success", "Active layer copied to clipboard ✅");
+}, [getLayerOnly, updateStatus]);
+
+
+  return {
+    iframeRef,
+    status,
+    apiUrl,
+    setApiUrl,
+    startInpaint,
+    openHint,
+    saveHint,
+    isLoading,
+    copyActiveLayerToClipboard,
+    // optional debug info:
+    comfyUrl: DEFAULT_COMFY_URL,
+  };
 }
