@@ -24,3 +24,22 @@ web_custom_versions/
 openapi.yaml
 filtered-openapi.yaml
 uv.lock
+
+# temp / outputs
+tmp_input/
+tmp_output/
+*.pt
+
+# node apps
+da_apps/
+konva_ps/
+package-lock.json
+
+# configs
+accelerate_config.yaml
+
+
+# python
+__pycache__/
+*.pyc
+.venv/
